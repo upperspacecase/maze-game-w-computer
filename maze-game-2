@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: sans-serif;
+            background: #1a0f1f;
+            color: #ff9800;
+        }
+        #game-container {
+            margin-top: 20px;
+            padding: 20px;
+            background: rgba(20, 10, 30, 0.8);
+            border-radius: 15px;
+            text-align: center;
+        }
+        #maze { border: 2px solid #ff9800; }
+        button {
+            padding: 10px 20px;
+            background: #ff4081;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        .win-message {
+            color: #69f0ae;
+            font-size: 24px;
+            font-weight: bold;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>Maze Game</h1>
+        <p>Time: <span id="time-display">60</span>s</p>
+        <button onclick="generateNewMaze()">New Maze</button>
+        <div class="win-message" id="winMessage">Victory!</div>
+        <canvas id="maze"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('maze');
+        const ctx = canvas.getContext('2d');
+        const cellSize = 30;
+        const rows = cols = 15;
+        canvas.width = canvas.height = cols * cellSize;
+        
+        let playerPos = {x:0, y:0}, endPos = {x:cols-1, y:rows-1}, maze = [];
+        let timeBank = 60, lastTime = Date.now(), isGamePaused = false;
+        let checkpoints = [{x:3,y:3}, {x:7,y:7}, {x:11,y:11}].map(p => ({...p, isActivated:false}));
+
+        class Cell {
+            constructor(x, y) {
+                this.x = x; this.y = y;
+                this.walls = {top:true, right:true, bottom:true, left:true};
+                this.visited = false;
+            }
+        }
+
+        function generateMaze() {
+            maze = Array(rows).fill().map((_, y) => Array(cols).fill().map((_, x) => new Cell(x, y)));
+            let current = maze[0][0], stack = [];
+            current.visited = true;
+
+            while (true) {
+                let neighbors = [[0,-1,'top'],[1,0,'right'],[0,1,'bottom'],[-1,0,'left']]
+                    .map(([dx,dy,dir]) => ({
+                        x: current.x + dx,
+                        y: current.y + dy,
+                        dir: dir
+                    }))
+                    .filter(({x,y}) => x>=0 && x<cols && y>=0 && y<rows && !maze[y][x].visited);
+
+                if (neighbors.length) {
+                    let next = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    stack.push(current);
+                    let nextCell = maze[next.y][next.x];
+                    current.walls[next.dir] = nextCell.walls[{top:'bottom',right:'left',bottom:'top',left:'right'}[next.dir]] = false;
+                    current = nextCell;
+                    current.visited = true;
+                } else if (stack.length) current = stack.pop();
+                else break;
+            }
+        }
+
+        function drawMaze() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#ff9800';
+            
+            maze.forEach((row, y) => row.forEach((cell, x) => {
+                let px = x * cellSize, py = y * cellSize;
+                ctx.beginPath();
+                if(cell.walls.top) {ctx.moveTo(px,py); ctx.lineTo(px+cellSize,py);}
+                if(cell.walls.right) {ctx.moveTo(px+cellSize,py); ctx.lineTo(px+cellSize,py+cellSize);}
+                if(cell.walls.bottom) {ctx.moveTo(px,py+cellSize); ctx.lineTo(px+cellSize,py+cellSize);}
+                if(cell.walls.left) {ctx.moveTo(px,py); ctx.lineTo(px,py+cellSize);}
+                ctx.stroke();
+            }));
+
+            // Draw checkpoints, end point, and player
+            [[checkpoints,'#00ff00'],[[{...endPos,isActivated:false}],'#b388ff'],[[{...playerPos,isActivated:false}],'#ff4081']]
+                .forEach(([points,color]) => points.forEach(p => {
+                    ctx.fillStyle = p.isActivated ? color.replace('ff','88') : color;
+                    ctx.beginPath();
+                    ctx.arc((p.x+0.5)*cellSize, (p.y+0.5)*cellSize, cellSize/3, 0, Math.PI*2);
+                    ctx.fill();
+                }));
+        }
+
+        function updateGameState() {
+            if (!isGamePaused) {
+                timeBank -= (Date.now() - lastTime) / 1000;
+                lastTime = Date.now();
+                document.getElementById('time-display').textContent = Math.ceil(timeBank);
+                
+                if (timeBank <= 0) {
+                    isGamePaused = true;
+                    alert('Time Up!');
+                    generateNewMaze();
+                }
+            }
+        }
+
+        function generateNewMaze() {
+            playerPos = {x:0, y:0};
+            timeBank = 60;
+            lastTime = Date.now();
+            isGamePaused = false;
+            checkpoints.forEach(c => c.isActivated = false);
+            document.getElementById('winMessage').style.display = 'none';
+            generateMaze();
+        }
+
+        document.addEventListener('keydown', e => {
+            if (isGamePaused) return;
+            let newPos = {...playerPos};
+            
+            switch(e.key) {
+                case 'ArrowUp': newPos.y--; break;
+                case 'ArrowRight': newPos.x++; break;
+                case 'ArrowDown': newPos.y++; break;
+                case 'ArrowLeft':
+                    if (playerPos.x === 0 && playerPos.y === 0) {
+                        playerPos = {...endPos};
+                    } else newPos.x--;
+                    break;
+                default: return;
+            }
+
+            if (newPos.x >= 0 && newPos.x < cols && newPos.y >= 0 && newPos.y < rows &&
+                !maze[playerPos.y][playerPos.x].walls[['top','right','bottom','left'][['ArrowUp','ArrowRight','ArrowDown','ArrowLeft'].indexOf(e.key)]]) {
+                playerPos = newPos;
+                
+                checkpoints.forEach(c => {
+                    if (playerPos.x === c.x && playerPos.y === c.y && !c.isActivated) {
+                        c.isActivated = true;
+                        timeBank += 10;
+                    }
+                });
+
+                if (playerPos.x === endPos.x && playerPos.y === endPos.y) {
+                    document.getElementById('winMessage').style.display = 'block';
+                    isGamePaused = true;
+                }
+            }
+        });
+
+        setInterval(() => { updateGameState(); drawMaze(); }, 50);
+        generateNewMaze();
+    </script>
+</body>
+</html>
